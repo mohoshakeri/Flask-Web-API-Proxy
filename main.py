@@ -1,7 +1,17 @@
+import os
+
+import jwt
 import requests
+from dotenv import load_dotenv
 from flask import Flask, request, Response
 
 app = Flask(__name__)
+
+load_dotenv(override=True)
+SIGN_KEY = os.getenv("SIGN_KEY")
+
+if SIGN_KEY is None:
+    raise ValueError("SIGN KEY Not found")
 
 
 @app.route(
@@ -11,6 +21,16 @@ app = Flask(__name__)
 )
 @app.route("/path:path", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 def proxy(path):
+    # Auth
+    jwt_token = request.args.get("originJWT")
+    try:
+        decoded_payload = jwt.decode(jwt_token, SIGN_KEY, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        return "JWT Expired", 403
+    except jwt.InvalidTokenError:
+        return "JWT Error", 403
+
+    # Target
     target_base = request.args.get("targetProxyServer")
     if not target_base:
         return "targetProxyServer not founded", 400
@@ -24,6 +44,7 @@ def proxy(path):
     # GET Params
     params = dict(request.args)
     params.pop("targetProxyServer", None)
+    params.pop("originJWT", None)
 
     # Headers
     headers = {}
