@@ -1,7 +1,8 @@
 import ipaddress
 import os
+import re
 import socket
-from urllib.parse import SplitResult, urljoin, urlsplit
+from urllib.parse import SplitResult, quote, urlsplit
 
 import jwt
 import requests
@@ -178,8 +179,21 @@ def _validate_target_url(target_base: str) -> tuple[bool, str | None]:
 
 
 def _build_target_url(target_base: str, path: str) -> str:
-    base: str = target_base if target_base.endswith("/") else "{}/".format(target_base)
-    return urljoin(base, path) if path else target_base
+    base: str = target_base.rstrip("/")
+    if not path:
+        return base
+    # urljoin collapses "//" inside paths (e.g. Search Console siteUrl
+    # ".../sites/https://example.com/" → ".../sites/https:/example.com/").
+    encoded_path: str = _encode_target_path(path.lstrip("/"))
+    return "{}/{}".format(base, encoded_path)
+
+
+def _encode_target_path(path: str) -> str:
+    """Keep Embedded Absolute Urls As A Single Encoded Path Segment."""
+    def _encode_site_url(match: re.Match[str]) -> str:
+        return quote(match.group(0), safe="")
+
+    return re.sub(r"https?://[^/]+/?", _encode_site_url, path)
 
 
 def _filtered_query_params() -> list[tuple[str, str]]:
