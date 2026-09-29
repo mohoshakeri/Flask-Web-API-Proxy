@@ -26,11 +26,20 @@ class FakeTargetResponse:
     headers: dict[str, str]
 
 
-def _load_app(monkeypatch: pytest.MonkeyPatch, ip_allowed: str = "") -> ModuleType:
-    monkeypatch.setenv("SIGN_KEY", SIGN_KEY)
+def _load_app(
+    monkeypatch: pytest.MonkeyPatch,
+    ip_allowed: str = "",
+    is_open: str = "",
+    sign_key: str | None = SIGN_KEY,
+) -> ModuleType:
+    if sign_key is None:
+        monkeypatch.delenv("SIGN_KEY", raising=False)
+    else:
+        monkeypatch.setenv("SIGN_KEY", sign_key)
     monkeypatch.setenv("TARGET_HOSTS", TARGET_HOSTS)
     monkeypatch.setenv("ALLOW_PRIVATE_TARGETS", PRIVATE_TARGETS_ENABLED)
     monkeypatch.setenv("IP_ALLOWED", ip_allowed)
+    monkeypatch.setenv("IS_OPEN", is_open)
     sys.modules.pop("app", None)
     return importlib.import_module("app")
 
@@ -90,6 +99,34 @@ def test_source_ip_allowlist_blocks_unlisted_clients(monkeypatch: pytest.MonkeyP
 
     assert response.status_code == FORBIDDEN_STATUS_CODE
     assert response.get_data(as_text=True) == "Source IP is not allowed"
+
+
+def test_is_open_skips_auth_and_ip_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    app_module: ModuleType = _load_app(
+        monkeypatch,
+        ip_allowed="203.0.113.10",
+        is_open="true",
+        sign_key=None,
+    )
+    client: FlaskClient = _client(app_module)
+    captured_request: dict[str, Any] = {}
+
+    def fake_request(**kwargs: Any) -> FakeTargetResponse:
+        captured_request.update(kwargs)
+        return FakeTargetResponse(
+            content=b'{"ok":true}',
+            status_code=SUCCESS_STATUS_CODE,
+            headers={"Content-Type": "application/json"},
+        )
+
+    monkeypatch.setattr(app_module.requests, "request", fake_request)
+
+    response = client.get("/example/v1/models")
+
+    assert response.status_code == SUCCESS_STATUS_CODE
+    assert response.get_data() == b'{"ok":true}'
+    assert captured_request["url"] == "https://example.com/v1/models"
+    assert AUTH_HEADER_NAME not in captured_request["headers"]
 
 
 def test_proxy_forwards_request_and_filters_headers(monkeypatch: pytest.MonkeyPatch) -> None:

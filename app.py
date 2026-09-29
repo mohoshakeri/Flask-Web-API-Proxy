@@ -12,6 +12,7 @@ from flask import Flask, Response, request
 from CONSTANTS import ALLOW_PRIVATE_TARGETS_ENV
 from CONSTANTS import ALLOWED_METHODS
 from CONSTANTS import AUTH_HEADER_NAME
+from CONSTANTS import AUTH_HEADER_REQUIRED_ERROR
 from CONSTANTS import BAD_GATEWAY_STATUS_CODE
 from CONSTANTS import BAD_REQUEST_STATUS_CODE
 from CONSTANTS import DEFAULT_HTTP_PORT
@@ -27,6 +28,7 @@ from CONSTANTS import HOST_PROXY_PATH
 from CONSTANTS import INVALID_IP_ALLOWED_ERROR
 from CONSTANTS import INVALID_TARGET_SERVER_ERROR
 from CONSTANTS import IP_ALLOWED_ENV
+from CONSTANTS import IS_OPEN_ENV
 from CONSTANTS import JWT_ALGORITHM
 from CONSTANTS import JWT_ERROR
 from CONSTANTS import JWT_EXPIRED_ERROR
@@ -58,10 +60,11 @@ load_dotenv(override=True)
 SIGN_KEY: str | None = os.getenv(SIGN_KEY_ENV)
 REQUEST_TIMEOUT: float = float(os.getenv(REQUEST_TIMEOUT_ENV, DEFAULT_REQUEST_TIMEOUT))
 ALLOW_PRIVATE_TARGETS: bool = os.getenv(ALLOW_PRIVATE_TARGETS_ENV, "").lower() == PRIVATE_TARGETS_ENABLED_VALUE
+IS_OPEN: bool = os.getenv(IS_OPEN_ENV, "").lower() == PRIVATE_TARGETS_ENABLED_VALUE
 TARGET_HOSTS_RAW: str = os.getenv(TARGET_HOSTS_ENV, "")
 IP_ALLOWED_RAW: str = os.getenv(IP_ALLOWED_ENV, "")
 
-if SIGN_KEY is None:
+if SIGN_KEY is None and not IS_OPEN:
     raise ValueError(SIGN_KEY_NOT_FOUND_ERROR)
 
 
@@ -261,19 +264,20 @@ def _build_proxy_response(target_response: requests.Response) -> Response:
 @app.route(HOST_PATH, defaults={"path": EMPTY_ROUTE_DEFAULT}, methods=ALLOWED_METHODS)
 @app.route(HOST_PROXY_PATH, methods=ALLOWED_METHODS)
 def proxy(host_id: str, path: str) -> Response | tuple[str, int]:
-    remote_ip: str = request.remote_addr or ""
-    if not _is_ip_allowed(remote_ip):
-        return SOURCE_IP_NOT_ALLOWED_ERROR, FORBIDDEN_STATUS_CODE
+    if not IS_OPEN:
+        remote_ip: str = request.remote_addr or ""
+        if not _is_ip_allowed(remote_ip):
+            return SOURCE_IP_NOT_ALLOWED_ERROR, FORBIDDEN_STATUS_CODE
 
-    jwt_token: str | None = request.headers.get(AUTH_HEADER_NAME)
-    if not jwt_token:
-        return AUTH_HEADER_REQUIRED_ERROR, FORBIDDEN_STATUS_CODE
+        jwt_token: str | None = request.headers.get(AUTH_HEADER_NAME)
+        if not jwt_token:
+            return AUTH_HEADER_REQUIRED_ERROR, FORBIDDEN_STATUS_CODE
 
-    is_valid_token: bool
-    auth_error: str | None
-    is_valid_token, auth_error = _decode_auth_token(jwt_token)
-    if not is_valid_token and auth_error is not None:
-        return auth_error, FORBIDDEN_STATUS_CODE
+        is_valid_token: bool
+        auth_error: str | None
+        is_valid_token, auth_error = _decode_auth_token(jwt_token)
+        if not is_valid_token and auth_error is not None:
+            return auth_error, FORBIDDEN_STATUS_CODE
 
     target_base: str | None = TARGET_HOSTS.get(host_id.lower())
     if not target_base:

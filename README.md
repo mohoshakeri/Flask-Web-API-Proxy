@@ -17,11 +17,12 @@ The target host is selected from `TARGET_HOSTS` in the environment. Clients can 
 
 ## Environment Variables
 
-- `SIGN_KEY`: required shared secret for JWT validation
+- `SIGN_KEY`: shared secret for JWT validation (required unless `IS_OPEN=true`)
 - `TARGET_HOSTS`: required comma-separated `id:hostname` or `id:https://hostname` entries
 - `IP_ALLOWED`: optional comma-separated source IPs or CIDR ranges
 - `REQUEST_TIMEOUT`: optional outbound timeout in seconds
 - `ALLOW_PRIVATE_TARGETS`: optional, defaults to `false`
+- `IS_OPEN`: optional, defaults to `false`. When `true`, auth header and IP allowlist checks are skipped
 
 Example:
 
@@ -31,6 +32,7 @@ TARGET_HOSTS=openai:api.openai.com,example:https://service.example.com
 IP_ALLOWED=203.0.113.10,198.51.100.0/24
 REQUEST_TIMEOUT=20
 ALLOW_PRIVATE_TARGETS=false
+IS_OPEN=false
 ```
 
 ## Security Notes
@@ -42,6 +44,7 @@ ALLOW_PRIVATE_TARGETS=false
 - Run this service behind HTTPS only.
 - `SIGN_KEY` must be long, random, and stored outside source control.
 - Use short JWT expirations.
+- **Warning:** `IS_OPEN=true` disables JWT (`PRX-AUTH`) and `IP_ALLOWED` checks. Anyone who can reach the service can proxy to every host in `TARGET_HOSTS`. Use only for local development or fully trusted private networks. Never enable it on a public internet-facing deployment.
 
 ## Leak Prevention
 
