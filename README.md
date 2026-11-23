@@ -22,6 +22,7 @@ The target host is selected from `TARGET_HOSTS` in the environment. Clients can 
 - `IP_ALLOWED`: optional comma-separated source IPs or CIDR ranges
 - `REQUEST_TIMEOUT`: optional outbound timeout in seconds (default `60`)
 - `GUNICORN_TIMEOUT`: Docker only — Gunicorn worker timeout in seconds (image default `60`). Keep it **greater than or equal to** `REQUEST_TIMEOUT` for long upstream calls
+- `GUNICORN_WORKERS`: Docker only — concurrent sync workers (image default `1`). Each worker holds one upstream call; set this to the max concurrent long requests you expect (e.g. `20` for twenty simultaneous TTS proxies)
 - `ALLOW_PRIVATE_TARGETS`: optional, defaults to `false`
 - `IS_OPEN`: optional, defaults to `false`. When `true`, auth header and IP allowlist checks are skipped
 
@@ -33,9 +34,20 @@ TARGET_HOSTS=openai:api.openai.com,example:https://service.example.com
 IP_ALLOWED=203.0.113.10,198.51.100.0/24
 REQUEST_TIMEOUT=60
 GUNICORN_TIMEOUT=60
+GUNICORN_WORKERS=1
 ALLOW_PRIVATE_TARGETS=false
 IS_OPEN=false
 ```
+
+For about twenty concurrent long upstream calls (Gemini TTS through a CDN edge):
+
+```text
+REQUEST_TIMEOUT=1200
+GUNICORN_TIMEOUT=1200
+GUNICORN_WORKERS=20
+```
+
+Also raise the CDN/origin idle timeout (or use DNS-only for the API host). App timeouts alone do not override the edge.
 
 ## Security Notes
 
@@ -70,6 +82,7 @@ It also avoids forwarding Flask cookie parsing state as a Requests cookie jar, w
 - Outbound requests use a timeout controlled by `REQUEST_TIMEOUT` to avoid hanging workers indefinitely.
 - Debug mode is forced off in the application entrypoint.
 - For long upstream responses (TTS, large generations), raise both `REQUEST_TIMEOUT` and `GUNICORN_TIMEOUT` on the server (keep Gunicorn ≥ outbound). If Gunicorn's timeout wins first, the worker is aborted mid-request and callers typically receive an HTML `500 Internal Server Error` instead of a clean proxy error.
+- Concurrent capacity is `GUNICORN_WORKERS` (sync). Extra requests wait for a free worker; behind a CDN that wait often becomes an edge `504` even when the upstream later succeeds.
 
 ## Remaining Risks
 
