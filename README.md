@@ -21,10 +21,18 @@ The target host is selected from `TARGET_HOSTS` in the environment. Clients can 
 - `TARGET_HOSTS`: required comma-separated `id:hostname` or `id:https://hostname` entries
 - `IP_ALLOWED`: optional comma-separated source IPs or CIDR ranges
 - `REQUEST_TIMEOUT`: optional outbound timeout in seconds (default `60`)
-- `GUNICORN_TIMEOUT`: Docker only — Gunicorn worker timeout in seconds (image default `60`). Keep it **greater than or equal to** `REQUEST_TIMEOUT` for long upstream calls
-- `GUNICORN_WORKERS`: Docker only — concurrent sync workers (image default `1`). Each worker holds one upstream call; set this to the max concurrent long requests you expect (e.g. `20` for twenty simultaneous TTS proxies)
+- `GUNICORN_TIMEOUT`: Docker — Gunicorn worker timeout in seconds (image default `60`). Keep it **greater than or equal to** `REQUEST_TIMEOUT` for long upstream calls
+- `GUNICORN_WORKERS`: Docker — concurrent sync workers (image default `1`). Each worker holds one upstream call; set this to the max concurrent long requests you expect (e.g. `20` for twenty simultaneous TTS proxies)
+- `NGINX_TIMEOUT`: Docker — default for nginx `proxy_read_timeout` / `proxy_send_timeout` / `client_body_timeout` (defaults to `GUNICORN_TIMEOUT`, else `60`)
+- `NGINX_PROXY_READ_TIMEOUT`: Docker — nginx `proxy_read_timeout` (defaults to `NGINX_TIMEOUT`)
+- `NGINX_PROXY_SEND_TIMEOUT`: Docker — nginx `proxy_send_timeout` (defaults to `NGINX_TIMEOUT`)
+- `NGINX_PROXY_CONNECT_TIMEOUT`: Docker — nginx `proxy_connect_timeout` (default `60`)
+- `NGINX_CLIENT_MAX_BODY_SIZE`: Docker — nginx `client_max_body_size` (default `32m`)
+- `NGINX_CLIENT_BODY_TIMEOUT`: Docker — nginx `client_body_timeout` (defaults to `NGINX_TIMEOUT`)
 - `ALLOW_PRIVATE_TARGETS`: optional, defaults to `false`
 - `IS_OPEN`: optional, defaults to `false`. When `true`, auth header and IP allowlist checks are skipped
+
+Docker layout: public `:80` is nginx; Gunicorn binds `127.0.0.1:3000` behind it.
 
 Example:
 
@@ -35,6 +43,7 @@ IP_ALLOWED=203.0.113.10,198.51.100.0/24
 REQUEST_TIMEOUT=60
 GUNICORN_TIMEOUT=60
 GUNICORN_WORKERS=1
+NGINX_TIMEOUT=60
 ALLOW_PRIVATE_TARGETS=false
 IS_OPEN=false
 ```
@@ -45,9 +54,10 @@ For about twenty concurrent long upstream calls (Gemini TTS through a CDN edge):
 REQUEST_TIMEOUT=1200
 GUNICORN_TIMEOUT=1200
 GUNICORN_WORKERS=20
+NGINX_TIMEOUT=1200
 ```
 
-Also raise the CDN/origin idle timeout (or use DNS-only for the API host). App timeouts alone do not override the edge.
+Also raise the CDN/origin idle timeout (or use DNS-only for the API host). App/nginx timeouts alone do not override the outer edge.
 
 ## Security Notes
 
@@ -83,6 +93,7 @@ It also avoids forwarding Flask cookie parsing state as a Requests cookie jar, w
 - Debug mode is forced off in the application entrypoint.
 - For long upstream responses (TTS, large generations), raise both `REQUEST_TIMEOUT` and `GUNICORN_TIMEOUT` on the server (keep Gunicorn ≥ outbound). If Gunicorn's timeout wins first, the worker is aborted mid-request and callers typically receive an HTML `500 Internal Server Error` instead of a clean proxy error.
 - Concurrent capacity is `GUNICORN_WORKERS` (sync). Extra requests wait for a free worker; behind a CDN that wait often becomes an edge `504` even when the upstream later succeeds.
+- Keep `NGINX_TIMEOUT` (or explicit nginx proxy timeouts) **greater than or equal to** `GUNICORN_TIMEOUT`. Otherwise nginx closes the client with `504` while Gunicorn may still be waiting on the upstream.
 
 ## Remaining Risks
 
